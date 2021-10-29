@@ -12,14 +12,22 @@ namespace TrafficEngineering {
     }
 
     // TODO: return const std::vector<int>&
-    std::vector<int> Tunnel::getNextSwitchIds(int switchId) {
-        return next[switchId];
+    std::vector<int> Tunnel::getNextSwitchIds(int switchId) const {
+        return next.at(switchId);
     }
 
     // TODO: check the next case:
     //       the specified switch does not belong to the tunnel
     bool Tunnel::isReceiver(int switchId) const {
         return next.count(switchId) == 0;
+    }
+
+    void Tunnel::setMinLatency(size_t latency) {
+        minLatency = latency;
+    }
+
+    void Tunnel::setMaxJitter(size_t jitter) {
+        maxJitter = jitter;
     }
 
 } // namespace TrafficEngineering

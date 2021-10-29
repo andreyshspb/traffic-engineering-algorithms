@@ -1,26 +1,66 @@
 #include "adjustment.h"
 
+#include <map>
+
 
 namespace TrafficEngineering {
 
-    std::vector<size_t> min_latency;
-    std::vector<size_t> max_latency;
+    std::map<int, size_t> minLatency;
+    std::map<int, size_t> maxLatency;
+    std::map<std::pair<int, int>, size_t> summaryTime;
 
-    void dfs(int curSwitchId, const Tunnel &tunnel) {}
+    void summaryTimeDfs(int curSwitchId, const Tunnel& tunnel, const Network& network) {
+        for (auto next : tunnel.getNextSwitchIds(curSwitchId)) {
+            summaryTime[{curSwitchId, next}] += tunnel.getPacketSize() / network.getBandwidth(curSwitchId, next);
+            summaryTimeDfs(next, tunnel, network);
+        }
+    }
 
-    AdjustmentResult adjustment(const Network &network, const std::vector<Tunnel> &tunnels) {
-        min_latency = std::vector<size_t>(network.getSize());
-        max_latency = std::vector<size_t>(network.getSize());
+    void calculateSummaryTime(const std::vector<Tunnel>& tunnels, const Network& network) {
+        summaryTime.clear();
+        for (const auto& tunnel : tunnels) {
+            summaryTimeDfs(tunnel.getSenderSwitchId(), tunnel, network);
+        }
+    }
 
-        AdjustmentResult result;
-        for (const auto &tunnel: tunnels) {
-            int sender = tunnel.getSenderSwitchId();
-            dfs(sender, tunnel);
-            result.min_latency = std::min(result.min_latency, min_latency[sender]);
-            result.max_jitter = std::min(result.max_jitter, max_latency[sender]) -min_latency[sender];
+    void adjustmentDfs(int curSwitchId, const Tunnel& tunnel, const Network& network) {
+        maxLatency[curSwitchId] = 0;
+        minLatency[curSwitchId] = SIZE_MAX;
+        for (auto next : tunnel.getNextSwitchIds(curSwitchId)) {
+            adjustmentDfs(next, tunnel, network);
+
+            size_t curMaxLatency = 0;
+            curMaxLatency += maxLatency[next];
+            curMaxLatency += network.getMinDelay(curSwitchId, next);
+            curMaxLatency += network.getMaxJitter(curSwitchId, next);
+            curMaxLatency += summaryTime[{curSwitchId, next}];
+            maxLatency[curSwitchId] = std::max(maxLatency[curSwitchId], curMaxLatency);
+
+            size_t curMinLatency = 0;
+            curMinLatency += minLatency[next];
+            curMinLatency += network.getMinDelay(curSwitchId, next);
+            curMinLatency += tunnel.getPacketSize() / network.getBandwidth(curSwitchId, next);
+            minLatency[curSwitchId] = std::max(minLatency[curSwitchId], curMinLatency);
         }
 
-        return result;
+        if (tunnel.isReceiver(curSwitchId)) {
+            maxLatency[curSwitchId] = 0;
+            minLatency[curSwitchId] = 0;
+        }
+    }
+
+    void adjustment(const Network& network, std::vector<Tunnel>& tunnels) {
+        calculateSummaryTime(tunnels, network);
+
+        for (auto& tunnel: tunnels) {
+            minLatency.clear();
+            maxLatency.clear();
+
+            int sender = tunnel.getSenderSwitchId();
+            adjustmentDfs(sender, tunnel, network);
+            tunnel.setMinLatency(minLatency[sender]);
+            tunnel.setMaxJitter(maxLatency[sender] - minLatency[sender]);
+        }
     }
 
 } // namespace TrafficEngineering
