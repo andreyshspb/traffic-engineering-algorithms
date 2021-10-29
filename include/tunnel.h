@@ -14,8 +14,13 @@ namespace TrafficEngineering {
 
         bool isReceiver(int switchId) const;
 
-        void setMinLatency(size_t latency);
-        void setMaxJitter(size_t jitter);
+        size_t getMinLatency() const;
+        size_t getMaxJitter() const;
+        size_t getPeriod() const;
+
+        void setMinLatency(size_t newLatency);
+        void setMaxJitter(size_t newJitter);
+        void setPeriod(size_t newPeriod);
 
     private:
         int senderSwitchId;
@@ -24,6 +29,7 @@ namespace TrafficEngineering {
 
         size_t minLatency;
         size_t maxJitter;
+        size_t period;
 
     };
 

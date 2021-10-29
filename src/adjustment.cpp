@@ -7,6 +7,8 @@ namespace TrafficEngineering {
 
     std::map<int, size_t> minLatency;
     std::map<int, size_t> maxLatency;
+    std::map<int, size_t> periodLowerBound;
+
     std::map<std::pair<int, int>, size_t> summaryTime;
 
     void summaryTimeDfs(int curSwitchId, const Tunnel& tunnel, const Network& network) {
@@ -26,9 +28,14 @@ namespace TrafficEngineering {
     void adjustmentDfs(int curSwitchId, const Tunnel& tunnel, const Network& network) {
         maxLatency[curSwitchId] = 0;
         minLatency[curSwitchId] = SIZE_MAX;
+        periodLowerBound[curSwitchId] = 0;
         for (auto next : tunnel.getNextSwitchIds(curSwitchId)) {
             adjustmentDfs(next, tunnel, network);
 
+            // useful variables
+            size_t transfer_time = tunnel.getPacketSize() / network.getBandwidth(curSwitchId, next);
+
+            // maximum latency relaxing
             size_t curMaxLatency = 0;
             curMaxLatency += maxLatency[next];
             curMaxLatency += network.getMinDelay(curSwitchId, next);
@@ -36,16 +43,24 @@ namespace TrafficEngineering {
             curMaxLatency += summaryTime[{curSwitchId, next}];
             maxLatency[curSwitchId] = std::max(maxLatency[curSwitchId], curMaxLatency);
 
+            // minimum latency relaxing
             size_t curMinLatency = 0;
             curMinLatency += minLatency[next];
             curMinLatency += network.getMinDelay(curSwitchId, next);
-            curMinLatency += tunnel.getPacketSize() / network.getBandwidth(curSwitchId, next);
+            curMinLatency += transfer_time;
             minLatency[curSwitchId] = std::min(minLatency[curSwitchId], curMinLatency);
+
+            // relaxing of period lower bound
+            size_t curPeriod = 0;
+            curPeriod += summaryTime[{curSwitchId, next}] - transfer_time;
+            curPeriod += std::max(transfer_time, periodLowerBound[next] + network.getMaxJitter(curSwitchId, next));
+            periodLowerBound[curSwitchId] = std::max(periodLowerBound[curSwitchId], curPeriod);
         }
 
         if (tunnel.isReceiver(curSwitchId)) {
             maxLatency[curSwitchId] = 0;
             minLatency[curSwitchId] = 0;
+            periodLowerBound[curSwitchId] = 0;
         }
     }
 
@@ -55,11 +70,14 @@ namespace TrafficEngineering {
         for (auto& tunnel: tunnels) {
             minLatency.clear();
             maxLatency.clear();
+            periodLowerBound.clear();
 
             int sender = tunnel.getSenderSwitchId();
             adjustmentDfs(sender, tunnel, network);
+
             tunnel.setMinLatency(minLatency[sender]);
             tunnel.setMaxJitter(maxLatency[sender] - minLatency[sender]);
+            tunnel.setPeriod(std::max(periodLowerBound[sender], tunnel.getPeriod()));
         }
     }
 

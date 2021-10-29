@@ -22,12 +22,28 @@ namespace TrafficEngineering {
         return next.count(switchId) == 0;
     }
 
-    void Tunnel::setMinLatency(size_t latency) {
-        minLatency = latency;
+    size_t Tunnel::getMinLatency() const {
+        return minLatency;
     }
 
-    void Tunnel::setMaxJitter(size_t jitter) {
-        maxJitter = jitter;
+    size_t Tunnel::getMaxJitter() const {
+        return maxJitter;
+    }
+
+    size_t Tunnel::getPeriod() const {
+        return period;
+    }
+
+    void Tunnel::setMinLatency(size_t newLatency) {
+        minLatency = newLatency;
+    }
+
+    void Tunnel::setMaxJitter(size_t newJitter) {
+        maxJitter = newJitter;
+    }
+
+    void Tunnel::setPeriod(size_t newPeriod) {
+        period = newPeriod;
     }
 
 } // namespace TrafficEngineering
