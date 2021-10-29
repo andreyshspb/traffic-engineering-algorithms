@@ -40,7 +40,7 @@ namespace TrafficEngineering {
             curMinLatency += minLatency[next];
             curMinLatency += network.getMinDelay(curSwitchId, next);
             curMinLatency += tunnel.getPacketSize() / network.getBandwidth(curSwitchId, next);
-            minLatency[curSwitchId] = std::max(minLatency[curSwitchId], curMinLatency);
+            minLatency[curSwitchId] = std::min(minLatency[curSwitchId], curMinLatency);
         }
 
         if (tunnel.isReceiver(curSwitchId)) {
