@@ -1,84 +1,94 @@
 #include "adjustment.h"
 
 #include <map>
+#include <limits>
 
 
 namespace TrafficEngineering {
 
-    std::map<int, size_t> minLatency;
-    std::map<int, size_t> maxLatency;
-    std::map<int, size_t> periodLowerBound;
-
-    std::map<std::pair<int, int>, size_t> summaryTime;
-
-    void summaryTimeDfs(int curSwitchId, const Tunnel& tunnel, const Network& network) {
-        for (auto next : tunnel.getNextSwitchIds(curSwitchId)) {
-            summaryTime[{curSwitchId, next}] += tunnel.getPacketSize() / network.getBandwidth(curSwitchId, next);
-            summaryTimeDfs(next, tunnel, network);
-        }
-    }
-
-    void calculateSummaryTime(const std::vector<Tunnel>& tunnels, const Network& network) {
-        summaryTime.clear();
-        for (const auto& tunnel : tunnels) {
-            summaryTimeDfs(tunnel.getSenderSwitchId(), tunnel, network);
-        }
-    }
-
-    void adjustmentDfs(int curSwitchId, const Tunnel& tunnel, const Network& network) {
-        maxLatency[curSwitchId] = 0;
-        minLatency[curSwitchId] = SIZE_MAX;
-        periodLowerBound[curSwitchId] = 0;
-        for (auto next : tunnel.getNextSwitchIds(curSwitchId)) {
-            adjustmentDfs(next, tunnel, network);
-
-            // useful variables
-            size_t transfer_time = tunnel.getPacketSize() / network.getBandwidth(curSwitchId, next);
-
-            // maximum latency relaxing
-            size_t curMaxLatency = 0;
-            curMaxLatency += maxLatency[next];
-            curMaxLatency += network.getMinDelay(curSwitchId, next);
-            curMaxLatency += network.getMaxJitter(curSwitchId, next);
-            curMaxLatency += summaryTime[{curSwitchId, next}];
-            maxLatency[curSwitchId] = std::max(maxLatency[curSwitchId], curMaxLatency);
-
-            // minimum latency relaxing
-            size_t curMinLatency = 0;
-            curMinLatency += minLatency[next];
-            curMinLatency += network.getMinDelay(curSwitchId, next);
-            curMinLatency += transfer_time;
-            minLatency[curSwitchId] = std::min(minLatency[curSwitchId], curMinLatency);
-
-            // relaxing of period lower bound
-            size_t curPeriod = 0;
-            curPeriod += summaryTime[{curSwitchId, next}] - transfer_time;
-            curPeriod += std::max(transfer_time, periodLowerBound[next] + network.getMaxJitter(curSwitchId, next));
-            periodLowerBound[curSwitchId] = std::max(periodLowerBound[curSwitchId], curPeriod);
+    class AdjustmentHelper {
+    public:
+        AdjustmentHelper(const Network &network, std::vector<Tunnel> &tunnels)
+                : network(network), tunnels(tunnels) {
+            calculateSummaryTime();
+            for (auto &tunnel: tunnels) {
+                int sender = tunnel.getSenderSwitchId();
+                adjustmentDfs(sender, tunnel);
+                tunnel.setMinLatency(minLatency[sender]);
+                tunnel.setMaxJitter(maxLatency[sender] - minLatency[sender]);
+                tunnel.setPeriod(std::max(periodLowerBound[sender], tunnel.getPeriod()));
+            }
         }
 
-        if (tunnel.isReceiver(curSwitchId)) {
+    private:
+        const Network &network;
+        std::vector<Tunnel> &tunnels;
+
+        std::map<std::pair<int, int>, size_t> summaryTime;
+
+        std::map<int, size_t> minLatency;
+        std::map<int, size_t> maxLatency;
+        std::map<int, size_t> periodLowerBound;
+
+        void calculateSummaryTime() {
+            for (const auto &tunnel: tunnels) {
+                summaryTimeDfs(tunnel.getSenderSwitchId(), tunnel);
+            }
+        }
+
+        void summaryTimeDfs(int curSwitchId, const Tunnel &tunnel) {
+            for (auto next: tunnel.getNextSwitchIds(curSwitchId)) {
+                summaryTime[{curSwitchId, next}] += tunnel.getPacketSize() / network.getBandwidth(curSwitchId, next);
+                summaryTimeDfs(next, tunnel);
+            }
+        }
+
+        void adjustmentDfs(int curSwitchId, const Tunnel &tunnel) {
             maxLatency[curSwitchId] = 0;
-            minLatency[curSwitchId] = 0;
+            minLatency[curSwitchId] = std::numeric_limits<size_t>::max();
             periodLowerBound[curSwitchId] = 0;
+            for (auto next: tunnel.getNextSwitchIds(curSwitchId)) {
+                adjustmentDfs(next, tunnel);
+                relaxMaxLatency(curSwitchId, next, tunnel);
+                relaxMinLatency(curSwitchId, next, tunnel);
+                relaxPeriodLowerBound(curSwitchId, next, tunnel);
+            }
+            if (tunnel.isReceiver(curSwitchId)) {
+                maxLatency[curSwitchId] = 0;
+                minLatency[curSwitchId] = 0;
+                periodLowerBound[curSwitchId] = 0;
+            }
         }
-    }
 
-    void adjustment(const Network& network, std::vector<Tunnel>& tunnels) {
-        calculateSummaryTime(tunnels, network);
-
-        for (auto& tunnel: tunnels) {
-            minLatency.clear();
-            maxLatency.clear();
-            periodLowerBound.clear();
-
-            int sender = tunnel.getSenderSwitchId();
-            adjustmentDfs(sender, tunnel, network);
-
-            tunnel.setMinLatency(minLatency[sender]);
-            tunnel.setMaxJitter(maxLatency[sender] - minLatency[sender]);
-            tunnel.setPeriod(std::max(periodLowerBound[sender], tunnel.getPeriod()));
+        void relaxMaxLatency(int from, int to, const Tunnel &tunnel) {
+            size_t curMaxLatency = 0;
+            curMaxLatency += maxLatency[to];
+            curMaxLatency += network.getMinDelay(from, to);
+            curMaxLatency += network.getMaxJitter(from, to);
+            curMaxLatency += summaryTime[{from, to}];
+            maxLatency[from] = std::max(maxLatency[from], curMaxLatency);
         }
+
+        void relaxMinLatency(int from, int to, const Tunnel &tunnel) {
+            const auto transfer_time = tunnel.getPacketSize() / network.getBandwidth(from, to);
+            size_t curMinLatency = 0;
+            curMinLatency += minLatency[to];
+            curMinLatency += network.getMinDelay(from, to);
+            curMinLatency += transfer_time;
+            minLatency[from] = std::min(minLatency[from], curMinLatency);
+        }
+
+        void relaxPeriodLowerBound(int from, int to, const Tunnel &tunnel) {
+            const auto transfer_time = tunnel.getPacketSize() / network.getBandwidth(from, to);
+            size_t curPeriod = 0;
+            curPeriod += summaryTime[{from, to}] - transfer_time;
+            curPeriod += std::max(transfer_time, periodLowerBound[to] + network.getMaxJitter(from, to));
+            periodLowerBound[from] = std::max(periodLowerBound[from], curPeriod);
+        }
+    };
+
+    void adjustment(const Network &network, std::vector<Tunnel> &tunnels) {
+        AdjustmentHelper adjustmentAlgorithm(network, tunnels);
     }
 
 } // namespace TrafficEngineering

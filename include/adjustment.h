@@ -8,6 +8,6 @@
 
 namespace TrafficEngineering {
 
-    void adjustment(const Network& network, std::vector<Tunnel>& tunnels);
+    void adjustment(const Network &network, std::vector<Tunnel> &tunnels);
 
 } // namespace TrafficEngineering
