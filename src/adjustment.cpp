@@ -14,9 +14,14 @@ namespace TrafficEngineering {
             for (auto &tunnel: tunnels) {
                 int sender = tunnel.getSenderSwitchId();
                 adjustmentDfs(sender, tunnel);
+
                 tunnel.setMinLatency(minLatency[sender]);
                 tunnel.setMaxJitter(maxLatency[sender] - minLatency[sender]);
                 tunnel.setPeriod(std::max(periodLowerBound[sender], tunnel.getPeriod()));
+
+                minLatency.clear();
+                maxLatency.clear();
+                periodLowerBound.clear();
             }
         }
 
